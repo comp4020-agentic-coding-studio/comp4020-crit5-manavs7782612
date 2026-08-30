@@ -1,16 +1,98 @@
+/* Full-bleed game view: the board takes whatever space the header leaves, at
+   both marking viewports and at every size in between. No page scroll --- the
+   board is the page. */
+
+:root {
+  --ink: #e7edf5;
+  --muted: #7c8798;
+  --page: #0d1117;
+  --line: #1e2733;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
 body {
   margin: 0;
-  padding: 2rem;
-  font-family: system-ui, sans-serif;
-  line-height: 1.6;
-  color: #1a1a1a;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--page);
+  color: var(--ink);
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  /* A swipe anywhere in the viewport steers, not just one that starts on the
+     board --- so no gesture that lands here may pan or zoom the page instead.
+     (main.ts listens on the window for the same reason.) */
+  touch-action: none;
+}
+
+.hud {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.85rem clamp(0.85rem, 3vw, 2rem);
+  border-bottom: 1px solid var(--line);
+}
+
+.hud h1 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.hud nav a {
+  color: var(--muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+
+.hud nav a:hover,
+.hud nav a:focus-visible {
+  color: var(--ink);
+}
+
+.score {
+  margin: 0 0 0 auto;
+  font-size: clamp(1.5rem, 2.4vh, 2.25rem);
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 main {
-  max-width: 40rem;
-  margin: 0 auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  padding: clamp(0.5rem, 2vw, 1.5rem);
 }
 
-a {
-  color: #0b5fff;
+.board {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+canvas {
+  display: block;
+  border-radius: 12px;
+  /* The board owns every gesture that lands on it: without this a swipe on
+     the phone viewport scrolls the page (or triggers pull-to-refresh) instead
+     of steering. */
+  touch-action: none;
 }
