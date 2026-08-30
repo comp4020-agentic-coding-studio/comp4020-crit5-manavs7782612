@@ -81,6 +81,28 @@ describe("eating", () => {
     // anything, so the run's depth is asserted too.
     expect(state.score).toBeGreaterThan(20);
   });
+
+  it("advances its seed and moves the food around, rather than replaying one spot", () => {
+    let state = createInitialState({ seed: 11 });
+    const seeds = new Set([state.seed]);
+    const cells = new Set([`${state.food.x},${state.food.y}`]);
+    let score = 0;
+    for (let i = 0; i < 400 && state.status === "playing"; i += 1) {
+      state = step(setDirection(state, bestMove(state)));
+      if (state.score !== score) {
+        score = state.score;
+        seeds.add(state.seed);
+        cells.add(`${state.food.x},${state.food.y}`);
+      }
+    }
+    expect(score).toBeGreaterThan(20);
+    // A seed that failed to advance would hand back the same number forever:
+    // every spawn would come off the same place in the free-cell list, and
+    // the food would stop being a thing you have to go and find. Mutation
+    // testing found this gap --- the suite was green against that bug.
+    expect(seeds.size).toBe(score + 1);
+    expect(cells.size).toBeGreaterThan(score * 0.7);
+  });
 });
 
 describe("steering", () => {

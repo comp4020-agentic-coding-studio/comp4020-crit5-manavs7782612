@@ -74,9 +74,27 @@ describe("sensor: the link-preview card resolves", () => {
 
       const target = resolve(dirname(join(DIST, name)), card.split(/[?#]/)[0]);
       expect(
-        target.startsWith(DIST) && existsSync(target),
+        target.startsWith(DIST) && shipped(target),
         `${name} names ${card}, which resolves to ${relative(DIST, target)} --- not in dist/`,
       ).toBe(true);
     });
   }
 });
+
+/**
+ * Whether `target` shipped under exactly that name. `existsSync` is the wrong
+ * question: macOS matches paths case-insensitively and GitHub Pages does not,
+ * so `./Card.png` against a shipped `card.png` passes here and 404s there ---
+ * a broken preview with nothing red anywhere to say so. Walking the real
+ * directory entries asks the case-sensitive question on a case-insensitive
+ * disk.
+ */
+function shipped(target: string): boolean {
+  let current = DIST;
+  for (const segment of relative(DIST, target).split(sep)) {
+    if (segment === "" || segment === ".") continue;
+    if (!existsSync(current) || !readdirSync(current).includes(segment)) return false;
+    current = join(current, segment);
+  }
+  return true;
+}

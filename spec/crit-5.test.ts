@@ -66,10 +66,17 @@ describe("crit-5: the game can be lost", () => {
     expect(ended.snake[0]).toEqual({ x: 8, y: 8 });
   });
 
-  it("stays ended once it has ended --- play concludes somewhere", () => {
+  it("stays ended once it has ended --- nothing restarts play from inside", () => {
     const ended = playOut(createInitialState({ seed: 7 }));
-    const after = step(step(ended));
 
-    expect(after).toEqual(ended);
+    // Stepping an ended run is inert. On its own this assertion has no teeth:
+    // a crashed snake never moved, so it is a fixed point of `step` whether
+    // the terminal guard is there or not (mutating the guard away leaves this
+    // green). Steering is the half that can fail --- drop the status check in
+    // `setDirection` and the buffered direction changes here.
+    expect(step(step(ended))).toEqual(ended);
+    for (const direction of ["up", "down", "left", "right"] as const) {
+      expect(setDirection(ended, direction)).toEqual(ended);
+    }
   });
 });
