@@ -97,6 +97,16 @@ let state: GameState = createInitialState({ seed: Date.now() >>> 0 });
 let best = readBest();
 let endedAt: number | null = null;
 
+// The snake the *rules* see moves in whole-cell jumps every tick; the snake
+// the *player* sees is interpolated from this toward `state.snake` each
+// frame, which is what turns an 80ms-at-top-speed jump into a glide.
+// `prevSnake` is a snapshot from immediately before the most recent tick, and
+// `grewLastTick` records whether that tick ate --- the one case where the
+// interpolated array needs an extra, stationary segment (see
+// `interpolatedSnake`).
+let prevSnake: Point[] = state.snake;
+let grewLastTick = false;
+
 // --- sizing -------------------------------------------------------------
 // The grid is fixed; the pixels are not. The canvas is re-measured against
 // its wrapper whenever the wrapper changes, which is what keeps a window
@@ -126,6 +136,8 @@ measure();
 
 function restart(): void {
   state = createInitialState({ seed: Date.now() >>> 0 });
+  prevSnake = state.snake;
+  grewLastTick = false;
   endedAt = null;
   scoreEl.textContent = "0";
 }
@@ -220,7 +232,10 @@ function frame(now: number): void {
     while (state.status === "playing" && accumulated >= tickIntervalMs(state.score)) {
       accumulated -= tickIntervalMs(state.score);
       const before = state.score;
+      const beforeSnake = state.snake;
       state = step(state);
+      prevSnake = beforeSnake;
+      grewLastTick = state.score !== before;
       if (state.score !== before) scoreEl.textContent = String(state.score);
       if (state.status !== "playing") {
         endedAt = now;
@@ -262,9 +277,36 @@ function render(now: number): void {
   ctx.strokeRect(ctx.lineWidth / 2, ctx.lineWidth / 2, side - ctx.lineWidth, side - ctx.lineWidth);
 
   drawFood(now, cell);
-  drawSnake(cell);
+  // Reduced motion snaps straight to the ruleset's own positions; otherwise
+  // draw the point in the current tick that `accumulated` has reached.
+  const t =
+    state.status === "playing" && !reduceMotion
+      ? Math.min(1, accumulated / tickIntervalMs(state.score))
+      : 1;
+  drawSnake(cell, interpolatedSnake(t));
 
   if (state.status !== "playing") drawEnding(cell);
+}
+
+/**
+ * Where the snake is `t` of the way from the last tick to the next one.
+ * Every body segment slides toward the cell the segment ahead of it
+ * occupied before this tick --- follow-the-leader, the same rule that keeps
+ * the grid-snapped snake's segments adjacent --- and the head slides toward
+ * wherever `step` actually moved it. A tick that ate leaves the old tail
+ * segment cloned in place (it doesn't move this tick, so no interpolation is
+ * needed) rather than dropped, which is what growth looks like.
+ */
+function interpolatedSnake(t: number): Point[] {
+  if (t >= 1) return state.snake;
+  const out: Point[] = new Array(prevSnake.length);
+  for (let i = 0; i < prevSnake.length; i += 1) {
+    const from = prevSnake[i];
+    const to = i === 0 ? state.snake[0] : prevSnake[i - 1];
+    out[i] = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t };
+  }
+  if (grewLastTick) out.push(state.snake[state.snake.length - 1]);
+  return out;
 }
 
 function drawFood(now: number, cell: number): void {
@@ -283,41 +325,42 @@ function drawFood(now: number, cell: number): void {
   ctx.fill();
 }
 
-function drawSnake(cell: number): void {
+function drawSnake(cell: number, snake: Point[]): void {
   const inset = Math.max(1, cell * 0.1);
   const radius = cell * 0.26;
+  const thick = cell - inset * 2;
 
   ctx.fillStyle = BODY;
-  for (const part of state.snake) {
+  for (const part of snake) {
     ctx.beginPath();
-    ctx.roundRect(part.x * cell + inset, part.y * cell + inset, cell - inset * 2, cell - inset * 2, radius);
+    ctx.roundRect(part.x * cell + inset, part.y * cell + inset, thick, thick, radius);
     ctx.fill();
   }
   // The gaps between segments are bridged so the body reads as one animal
-  // rather than a queue of tiles.
-  for (let i = 1; i < state.snake.length; i += 1) {
-    const a = state.snake[i - 1];
-    const b = state.snake[i];
-    if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) !== 1) continue;
-    const midX = ((a.x + b.x) / 2 + 0.5) * cell;
-    const midY = ((a.y + b.y) / 2 + 0.5) * cell;
-    const thick = cell - inset * 2;
-    // Wide enough to swallow both segments' corner radii. Anything narrower
-    // leaves a waist at every joint, and the body reads as a row of separate
-    // creatures rather than one snake --- which is exactly what the first
-    // screenshot at 1920x1080 showed.
-    const span = (inset + radius) * 2;
-    if (a.y === b.y) ctx.fillRect(midX - span / 2, midY - thick / 2, span, thick);
-    else ctx.fillRect(midX - thick / 2, midY - span / 2, thick, span);
+  // rather than a queue of tiles. A round-capped stroke between segment
+  // centres does that at any angle, not just axis-aligned ones: while two
+  // segments are mid-slide around a corner they're briefly closer than a
+  // full cell apart, and a straight-line bridge still meets both of them
+  // with no seam, where the old fixed-orientation rect would gap.
+  ctx.strokeStyle = BODY;
+  ctx.lineCap = "round";
+  ctx.lineWidth = thick;
+  for (let i = 1; i < snake.length; i += 1) {
+    const a = snake[i - 1];
+    const b = snake[i];
+    ctx.beginPath();
+    ctx.moveTo((a.x + 0.5) * cell, (a.y + 0.5) * cell);
+    ctx.lineTo((b.x + 0.5) * cell, (b.y + 0.5) * cell);
+    ctx.stroke();
   }
 
-  drawHead(cell);
+  drawHead(cell, snake);
 }
 
-function drawHead(cell: number): void {
+function drawHead(cell: number, snake: Point[]): void {
   const inset = Math.max(1, cell * 0.1);
   const radius = cell * 0.26;
-  const head = state.snake[0];
+  const head = snake[0];
 
   ctx.fillStyle = state.status === "playing" ? HEAD : HEAD_DEAD;
   ctx.beginPath();
@@ -352,7 +395,7 @@ function drawEnding(cell: number): void {
   // where it happened. Lighter, and the head is redrawn on top of it.
   ctx.fillStyle = "rgba(15, 22, 32, 0.7)";
   ctx.fillRect(0, 0, side, side);
-  drawHead(cell);
+  drawHead(cell, state.snake);
 
   ctx.textAlign = "center";
   ctx.fillStyle = TEXT;
