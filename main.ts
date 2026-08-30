@@ -27,16 +27,21 @@ const context = canvas.getContext("2d");
 if (!context) throw new Error("2d canvas context unavailable");
 const ctx: CanvasRenderingContext2D = context;
 
-// Blue-green against orange, and rounded squares against a circle: the two
-// things on the board are told apart by hue, by lightness and by shape, so
-// none of the common colour-vision deficiencies can collapse the pair.
+// Blue-green against orange, and rounded squares against a circle: hue and
+// shape both separate the two things on the board, so no common colour-vision
+// deficiency can collapse the pair. Lightness had to be measured to be true
+// of it --- the first pass put body and food at 1.01:1 against each other,
+// identical to a greyscale eye, while the comment claimed otherwise. Against
+// the board they now rank body 4.6 : food 8.0 : head 13.0, which is 1.7:1
+// body-to-food and 1.6:1 food-to-head. The wall went up too: it is the only
+// thing that kills you, and at 1.6:1 it was the faintest mark on the board.
 const BOARD = "#0f1620";
 const CHECKER = "#141d29";
-const WALL = "#2b3a4d";
-const BODY = "#28c8bd";
+const WALL = "#43586f";
+const BODY = "#1b8f88";
 const HEAD = "#68efe4";
 const HEAD_DEAD = "#ff5c6c";
-const FOOD = "#ff9d3c";
+const FOOD = "#f79433";
 const TEXT = "#e7edf5";
 const MUTED = "#7c8798";
 
@@ -142,9 +147,11 @@ window.addEventListener(
       state = setDirection(state, direction);
       return;
     }
-    // Tab and Shift still have to move focus, or the page stops being
-    // keyboard-navigable the moment a run ends.
+    // Tab and Shift still have to move focus, and Enter and Space still
+    // belong to whatever holds it --- hijack those and the page's only
+    // keyboard-reachable control goes inert the moment a run ends.
     if (event.key === "Tab" || event.key === "Shift") return;
+    if ((event.key === "Enter" || event.key === " ") && focusIsInteractive()) return;
     event.preventDefault();
     tryRestart();
   },
@@ -155,19 +162,34 @@ window.addEventListener(
 // the window rather than the canvas so a swipe that starts in the margin
 // beside the board still steers --- on a 390px-wide phone that margin is a
 // good part of the screen.
-let pressed: Point | null = null;
+function focusIsInteractive(): boolean {
+  const active = document.activeElement;
+  return (
+    active instanceof Element &&
+    active !== document.body &&
+    active.closest("a[href], button, input, select, textarea") !== null
+  );
+}
+
+// Every pointer keeps its own origin. A single shared one measured whichever
+// finger lifted against whichever finger pressed last, so a thumb resting on
+// the glass --- the normal grip on a 390px phone --- turned the next lift into
+// a swipe nobody made. Owning the gesture with the first finger instead would
+// fix that but wedge all input if a release ever went missing; a map per
+// pointer id does neither.
+const gestures = new Map<number, Point>();
 
 window.addEventListener("pointerdown", (event) => {
-  pressed = { x: event.clientX, y: event.clientY };
+  gestures.set(event.pointerId, { x: event.clientX, y: event.clientY });
 });
 
-window.addEventListener("pointercancel", () => {
-  pressed = null;
+window.addEventListener("pointercancel", (event) => {
+  gestures.delete(event.pointerId);
 });
 
 window.addEventListener("pointerup", (event) => {
-  const start = pressed;
-  pressed = null;
+  const start = gestures.get(event.pointerId);
+  gestures.delete(event.pointerId);
   if (!start) return;
   if (state.status !== "playing") {
     tryRestart();
